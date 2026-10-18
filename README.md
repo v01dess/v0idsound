@@ -13,6 +13,9 @@
 
 </div>
 
+# ! WARNING !
+If you do not have `Install Unknown Apps` you might not be able to download/install the .apk file, therefor not being able to use the application.
+
 ---
 
 > **v0idsound** is a local-first Android music player built for music already on your phone.  
