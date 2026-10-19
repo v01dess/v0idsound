@@ -51,7 +51,11 @@ data class IndexerSettings(
      */
     val accentArgb: Int = AccentColor.VOID_PURPLE.color.toArgb(),
 
-    val marqueeLongTitles: Boolean = true
+    val marqueeLongTitles: Boolean = true,
+    val showAlbumTileArtwork: Boolean = true,
+    val albumTileStyle: String = "ONE",
+
+    val showRamUsage: Boolean = false
 ) {
     val accent: Color
         get() = Color(accentArgb)
@@ -104,6 +108,15 @@ class SettingsRepository(
 
         val MARQUEE_LONG_TITLES =
             booleanPreferencesKey("marquee_long_titles")
+
+        val SHOW_ALBUM_TILE_ARTWORK =
+            booleanPreferencesKey("show_album_tile_artwork")
+
+        val ALBUM_TILE_STYLE =
+            stringPreferencesKey("album_tile_style")
+
+        val SHOW_RAM_USAGE =
+            booleanPreferencesKey("show_ram_usage")
     }
 
     val settings: Flow<IndexerSettings> =
@@ -134,7 +147,13 @@ class SettingsRepository(
                 accentColor = presetAccent,
                 accentArgb = activeArgb,
                 marqueeLongTitles =
-                    prefs[Keys.MARQUEE_LONG_TITLES] ?: true
+                    prefs[Keys.MARQUEE_LONG_TITLES] ?: true,
+                showAlbumTileArtwork =
+                    prefs[Keys.SHOW_ALBUM_TILE_ARTWORK] ?: true,
+                albumTileStyle =
+                    prefs[Keys.ALBUM_TILE_STYLE] ?: "ONE",
+                showRamUsage =
+                    prefs[Keys.SHOW_RAM_USAGE] ?: false
             )
         }
 
@@ -232,5 +251,23 @@ class SettingsRepository(
         value: Boolean
     ) = context.dataStore.edit {
         it[Keys.MARQUEE_LONG_TITLES] = value
+    }
+
+    suspend fun setShowAlbumTileArtwork(
+        value: Boolean
+    ) = context.dataStore.edit {
+        it[Keys.SHOW_ALBUM_TILE_ARTWORK] = value
+    }
+
+    suspend fun setAlbumTileStyle(
+        value: String
+    ) = context.dataStore.edit {
+        it[Keys.ALBUM_TILE_STYLE] = value
+    }
+
+    suspend fun setShowRamUsage(
+        value: Boolean
+    ) = context.dataStore.edit {
+        it[Keys.SHOW_RAM_USAGE] = value
     }
 }

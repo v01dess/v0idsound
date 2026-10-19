@@ -1,7 +1,10 @@
 package com.example.v0idsound
 
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Color as AndroidColor
 import android.net.Uri
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -9,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,47 +20,63 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import java.util.Locale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
     settings: IndexerSettings,
+    onSetShowRamUsage: (Boolean) -> Unit,
     onSetMinimumDuration: (Int) -> Unit,
     onSetOnlyMusic: (Boolean) -> Unit,
     onSetHideRecordings: (Boolean) -> Unit,
@@ -71,14 +91,119 @@ fun SettingsScreen(
     onSetDarkTheme: (Boolean) -> Unit,
     onSetAccentColor: (AccentColor) -> Unit,
     onSetAccentArgb: (Int) -> Unit,
-    onSetMarqueeLongTitles: (Boolean) -> Unit
+    onSetMarqueeLongTitles: (Boolean) -> Unit,
+    onSetShowAlbumTileArtwork: (Boolean) -> Unit,
+    onSetAlbumTileStyle: (String) -> Unit
 ) {
-    var selectedCategory by remember {
-        mutableStateOf(SettingsCategory.INDEXING)
+    var categoryName by rememberSaveable {
+        mutableStateOf(SettingsCategory.INDEXING.name)
     }
+
+    val selectedCategory = SettingsCategory.entries.firstOrNull {
+        it.name == categoryName
+    } ?: SettingsCategory.INDEXING
 
     var durationInput by remember {
         mutableStateOf(settings.minimumDurationSeconds.toString())
+    }
+
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+
+    val activity = remember(context) {
+        context.findSettingsActivity()
+    }
+
+    val updates = remember(activity) {
+        ViewModelProvider(activity)[SettingsUpdateViewModel::class.java]
+    }
+
+    val installerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        updates.reportMessage(
+            "Installer closed. If you cancelled installation, " +
+                    "you can tap Install update again."
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        updates.requestInstallationResume()
+    }
+
+    fun installUpdate(allowPermissionRequest: Boolean) {
+        updates.prepareInstallation(
+            context = context.applicationContext,
+            onResult = { result ->
+                when (result) {
+                    is UpdateInstallResult.Ready -> {
+                        try {
+                            installerLauncher.launch(
+                                result.installerIntent
+                            )
+                            updates.reportMessage(
+                                "Confirm the update in Android's installer."
+                            )
+                        } catch (exception: Exception) {
+                            updates.reportError(
+                                "Could not open Android's package installer."
+                            )
+                        }
+                    }
+
+                    is UpdateInstallResult.PermissionRequired -> {
+                        if (allowPermissionRequest) {
+                            try {
+                                permissionLauncher.launch(
+                                    result.settingsIntent
+                                )
+                                updates.reportMessage(
+                                    "Allow installations from v0idsound, " +
+                                            "then return to the app."
+                                )
+                            } catch (exception: Exception) {
+                                updates.reportError(
+                                    "Could not open installation permissions. " +
+                                            "Check Android Settings for permission " +
+                                            "to install unknown apps."
+                                )
+                            }
+                        } else {
+                            updates.reportError(
+                                "Installation permission is still disabled. " +
+                                        "Tap Install update to try again."
+                            )
+                        }
+                    }
+
+                    is UpdateInstallResult.Failure -> {
+                        updates.reportError(result.message)
+                    }
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(updates.resumeInstallationRequested) {
+        if (updates.resumeInstallationRequested) {
+            updates.consumeInstallationResume()
+            installUpdate(allowPermissionRequest = false)
+        }
+    }
+
+    fun openReleasePage() {
+        try {
+            uriHandler.openUri(
+                "${UpdateRepository.REPOSITORY_URL}/releases"
+            )
+        } catch (exception: Exception) {
+            updates.reportError(
+                "Could not open a browser. Visit " +
+                        "${UpdateRepository.REPOSITORY_URL}/releases manually."
+            )
+        }
     }
 
     val pickFolder = rememberLauncherForActivityResult(
@@ -99,27 +224,22 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterChip(
-                selected = selectedCategory == SettingsCategory.INDEXING,
-                onClick = {
-                    selectedCategory = SettingsCategory.INDEXING
-                },
-                label = {
-                    Text("Indexing")
-                }
-            )
-
-            FilterChip(
-                selected = selectedCategory == SettingsCategory.CUSTOMIZATION,
-                onClick = {
-                    selectedCategory = SettingsCategory.CUSTOMIZATION
-                },
-                label = {
-                    Text("Customization")
-                }
-            )
+            SettingsCategory.entries.forEach { category ->
+                FilterChip(
+                    selected = selectedCategory == category,
+                    onClick = {
+                        categoryName = category.name
+                    },
+                    label = {
+                        Text(category.label)
+                    }
+                )
+            }
         }
 
         when (selectedCategory) {
@@ -128,8 +248,9 @@ fun SettingsScreen(
                     settings = settings,
                     durationInput = durationInput,
                     onDurationInputChange = { newValue ->
-                        val digitsOnly = newValue.filter { it.isDigit() }
-
+                        val digitsOnly = newValue.filter {
+                            it.isDigit()
+                        }
                         durationInput = digitsOnly
 
                         digitsOnly.toIntOrNull()?.let { seconds ->
@@ -156,14 +277,631 @@ fun SettingsScreen(
             SettingsCategory.CUSTOMIZATION -> {
                 CustomizationSettings(
                     settings = settings,
+                    onSetShowRamUsage = onSetShowRamUsage,
                     onSetDarkTheme = onSetDarkTheme,
                     onSetAccentColor = onSetAccentColor,
                     onSetAccentArgb = onSetAccentArgb,
-                    onSetMarqueeLongTitles = onSetMarqueeLongTitles
+                    onSetMarqueeLongTitles = onSetMarqueeLongTitles,
+                    onSetShowAlbumTileArtwork =
+                        onSetShowAlbumTileArtwork,
+                    onSetAlbumTileStyle = onSetAlbumTileStyle
+                )
+            }
+
+            SettingsCategory.UPDATES -> {
+                UpdateSettings(
+                    updates = updates,
+                    onDownload = {
+                        updates.downloadUpdate(
+                            context.applicationContext
+                        )
+                    },
+                    onInstall = {
+                        installUpdate(allowPermissionRequest = true)
+                    },
+                    onOpenReleases = {
+                        openReleasePage()
+                    }
                 )
             }
         }
     }
+
+    val availableRelease =
+        (updates.result as? UpdateCheckResult.UpdateAvailable)?.release
+
+    if (updates.showDialog && availableRelease != null) {
+        SettingsUpdateDialog(
+            release = availableRelease,
+            updates = updates,
+            onDownload = {
+                updates.downloadUpdate(context.applicationContext)
+            },
+            onInstall = {
+                installUpdate(allowPermissionRequest = true)
+            },
+            onOpenReleases = {
+                openReleasePage()
+            }
+        )
+    }
+}
+
+@Composable
+private fun UpdateSettings(
+    updates: SettingsUpdateViewModel,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit,
+    onOpenReleases: () -> Unit
+) {
+    Text(
+        text = "Updates",
+        style = MaterialTheme.typography.titleLarge
+    )
+
+    Text(
+        text = "Installed version: ${BuildConfig.VERSION_NAME}",
+        style = MaterialTheme.typography.titleMedium
+    )
+
+    Text(
+        text = "Build code: ${BuildConfig.VERSION_CODE}",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Text(
+        text = "v0idsound checks for updates on launch. " +
+                "You can also check manually here.",
+        style = MaterialTheme.typography.bodyMedium
+    )
+
+    Button(
+        onClick = { updates.checkForUpdates() },
+        enabled = !updates.isBusy,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        if (updates.isChecking) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp
+                )
+                Text("Checking...")
+            }
+        } else {
+            Text("Check for updates")
+        }
+    }
+
+    when (val result = updates.result) {
+        null -> Unit
+
+        is UpdateCheckResult.UpToDate -> {
+            Text(
+                text = "No newer stable release found.",
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                text = "Installed: ${result.installedVersion}\n" +
+                        "GitHub release: ${result.latestVersion}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        UpdateCheckResult.NoPublishedRelease -> {
+            Text(
+                text = "No published release found.",
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                text = "Check that the repository is public and has a " +
+                        "published stable release.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        is UpdateCheckResult.Failure -> {
+            Text(
+                text = result.message,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        is UpdateCheckResult.UpdateAvailable -> {
+            Text(
+                text = "Update available: ${result.release.versionName}",
+                style = MaterialTheme.typography.titleSmall
+            )
+
+            OutlinedButton(
+                onClick = { updates.openDialog() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("View release notes")
+            }
+
+            UpdateTransferControls(
+                release = result.release,
+                updates = updates,
+                onDownload = onDownload,
+                onInstall = onInstall
+            )
+        }
+    }
+
+    UpdateMessages(updates)
+
+    HorizontalDivider()
+
+    OutlinedButton(
+        onClick = onOpenReleases,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Open GitHub releases")
+    }
+
+    Text(
+        text = "Updates are installed over the existing app. " +
+                "Never uninstall to resolve a signing conflict.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+private fun SettingsUpdateDialog(
+    release: AppRelease,
+    updates: SettingsUpdateViewModel,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit,
+    onOpenReleases: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = {
+            updates.closeDialog()
+        },
+        title = {
+            Text("Update available")
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = release.title,
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                Text(
+                    text = "Installed: ${BuildConfig.VERSION_NAME}\n" +
+                            "Available: ${release.versionName}"
+                )
+
+                release.apkName?.let {
+                    Text(
+                        text = "APK: $it",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                release.apkSizeBytes?.let {
+                    Text(
+                        text = "Download size: ${formatUpdateBytes(it)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                HorizontalDivider()
+
+                Text(
+                    text = "Release notes",
+                    style = MaterialTheme.typography.titleSmall
+                )
+
+                Text(
+                    text = release.notes,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                HorizontalDivider()
+
+                UpdateTransferControls(
+                    release = release,
+                    updates = updates,
+                    onDownload = onDownload,
+                    onInstall = onInstall
+                )
+
+                UpdateMessages(updates)
+
+                Text(
+                    text = "Android will ask you to approve installation. " +
+                            "If the APK has a different signing certificate, " +
+                            "the updater will block it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onOpenReleases) {
+                Text("GitHub")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = { updates.closeDialog() }
+            ) {
+                Text(
+                    if (updates.isDownloading) {
+                        "Keep downloading"
+                    } else {
+                        "Close"
+                    }
+                )
+            }
+        }
+    )
+}
+
+@Composable
+private fun UpdateTransferControls(
+    release: AppRelease,
+    updates: SettingsUpdateViewModel,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        when {
+            updates.isDownloading -> {
+                val total = updates.totalBytes
+
+                if (total != null && total > 0L) {
+                    val fraction = (
+                            updates.downloadedBytes.toDouble() /
+                                    total.toDouble()
+                            ).toFloat().coerceIn(0f, 1f)
+
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text(
+                        text = "${formatUpdateBytes(updates.downloadedBytes)}" +
+                                " / ${formatUpdateBytes(total)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text(
+                        text = "Downloaded " +
+                                formatUpdateBytes(updates.downloadedBytes),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Text(
+                    text = "Downloading and validating the APK...",
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                OutlinedButton(
+                    onClick = { updates.cancelDownload() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Cancel download")
+                }
+            }
+
+            updates.isPreparing -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Text("Checking APK before installation...")
+                }
+            }
+
+            updates.downloadedUpdate != null -> {
+                Text(
+                    text = "Download ready: " +
+                            updates.downloadedUpdate!!.versionName,
+                    style = MaterialTheme.typography.titleSmall
+                )
+
+                Button(
+                    onClick = onInstall,
+                    enabled = !updates.isBusy,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Install update")
+                }
+            }
+
+            release.apkDownloadUrl != null -> {
+                Button(
+                    onClick = onDownload,
+                    enabled = !updates.isBusy,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Download update")
+                }
+            }
+
+            else -> {
+                Text(
+                    text = "No single suitable APK was identified. " +
+                            "The release needs one APK, or one APK with " +
+                            "\"universal\" in its name.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateMessages(updates: SettingsUpdateViewModel) {
+    updates.error?.let {
+        Text(
+            text = it,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+
+    updates.message?.let {
+        Text(
+            text = it,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/*
+ * Activity-scoped state keeps a download running across rotation
+ * and while switching away from Settings within the same Activity.
+ * It does not survive Android killing the app process.
+ */
+class SettingsUpdateViewModel : ViewModel() {
+
+    private val repository = UpdateRepository()
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate
+    )
+
+    private var downloadJob: Job? = null
+
+    var result by mutableStateOf<UpdateCheckResult?>(null)
+        private set
+
+    var isChecking by mutableStateOf(false)
+        private set
+
+    var isDownloading by mutableStateOf(false)
+        private set
+
+    var isPreparing by mutableStateOf(false)
+        private set
+
+    var downloadedBytes by mutableStateOf(0L)
+        private set
+
+    var totalBytes by mutableStateOf<Long?>(null)
+        private set
+
+    var downloadedUpdate by mutableStateOf<DownloadedUpdate?>(null)
+        private set
+
+    var showDialog by mutableStateOf(false)
+        private set
+
+    var error by mutableStateOf<String?>(null)
+        private set
+
+    var message by mutableStateOf<String?>(null)
+        private set
+
+    var resumeInstallationRequested by mutableStateOf(false)
+        private set
+
+    val isBusy: Boolean
+        get() = isChecking || isDownloading || isPreparing
+
+    fun checkForUpdates() {
+        if (isBusy) return
+
+        isChecking = true
+        error = null
+        message = null
+        result = null
+        downloadedUpdate = null
+        showDialog = false
+
+        scope.launch {
+            try {
+                val checkResult = repository.checkForUpdates()
+                result = checkResult
+                showDialog =
+                    checkResult is UpdateCheckResult.UpdateAvailable
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                error = "Could not check for updates. Please retry."
+            } finally {
+                isChecking = false
+            }
+        }
+    }
+
+    fun downloadUpdate(context: Context) {
+        if (isBusy) return
+
+        val release = (
+                result as? UpdateCheckResult.UpdateAvailable
+                )?.release ?: return
+
+        val appContext = context.applicationContext
+
+        isDownloading = true
+        downloadedBytes = 0L
+        totalBytes = release.apkSizeBytes
+        downloadedUpdate = null
+        error = null
+        message = null
+
+        downloadJob = scope.launch {
+            try {
+                when (
+                    val downloadResult = repository.downloadUpdate(
+                        context = appContext,
+                        release = release,
+                        onProgress = { received, total ->
+                            downloadedBytes = received
+                            totalBytes = total
+                        }
+                    )
+                ) {
+                    is UpdateDownloadResult.Success -> {
+                        downloadedUpdate = downloadResult.update
+                        message =
+                            "APK downloaded and compatibility checks passed. " +
+                                    "Tap Install update to continue."
+                    }
+
+                    is UpdateDownloadResult.Failure -> {
+                        error = downloadResult.message
+                    }
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                error = "The download failed. Please retry."
+            } finally {
+                isDownloading = false
+                downloadJob = null
+            }
+        }
+    }
+
+    fun cancelDownload() {
+        if (!isDownloading) return
+
+        message = "Cancelling download..."
+        downloadJob?.cancel()
+    }
+
+    fun prepareInstallation(
+        context: Context,
+        onResult: (UpdateInstallResult) -> Unit
+    ) {
+        if (isBusy) return
+
+        val update = downloadedUpdate
+
+        if (update == null) {
+            reportError(
+                "No downloaded update is available. Download it again."
+            )
+            return
+        }
+
+        val appContext = context.applicationContext
+
+        isPreparing = true
+        error = null
+        message = null
+
+        scope.launch {
+            try {
+                val installResult = repository.prepareInstallation(
+                    context = appContext,
+                    update = update
+                )
+
+                isPreparing = false
+                onResult(installResult)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                reportError("Could not prepare installation. Please retry.")
+            } finally {
+                isPreparing = false
+            }
+        }
+    }
+
+    fun requestInstallationResume() {
+        resumeInstallationRequested = true
+    }
+
+    fun consumeInstallationResume() {
+        resumeInstallationRequested = false
+    }
+
+    fun openDialog() {
+        showDialog = true
+    }
+
+    fun closeDialog() {
+        showDialog = false
+    }
+
+    fun reportError(value: String) {
+        error = value
+        message = null
+    }
+
+    fun reportMessage(value: String) {
+        message = value
+        error = null
+    }
+
+    override fun onCleared() {
+        scope.cancel()
+        super.onCleared()
+    }
+}
+
+private fun Context.findSettingsActivity(): ComponentActivity {
+    var current: Context = this
+
+    while (current is ContextWrapper) {
+        if (current is ComponentActivity) {
+            return current
+        }
+        current = current.baseContext
+    }
+
+    error("SettingsScreen must be hosted in a ComponentActivity.")
+}
+
+private fun formatUpdateBytes(bytes: Long): String {
+    return String.format(
+        Locale.ROOT,
+        "%.1f MiB",
+        bytes.toDouble() / (1024.0 * 1024.0)
+    )
 }
 
 @Composable
@@ -196,15 +934,12 @@ private fun IndexingSettings(
         OutlinedTextField(
             value = durationInput,
             onValueChange = onDurationInputChange,
-            label = {
-                Text("Seconds")
-            },
+            label = { Text("Seconds") },
             modifier = Modifier.weight(1f),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Number
             )
         )
-
         Text("seconds")
     }
 
@@ -212,7 +947,8 @@ private fun IndexingSettings(
 
     SettingToggle(
         label = "Only show music",
-        description = "Uses Android’s music flag instead of showing every audio file.",
+        description =
+            "Uses Android’s music flag instead of showing every audio file.",
         checked = settings.onlyMusic,
         onChange = onSetOnlyMusic
     )
@@ -226,7 +962,8 @@ private fun IndexingSettings(
 
     SettingToggle(
         label = "Broad scan",
-        description = "Include unusual audio formats and files with missing MIME metadata.",
+        description =
+            "Include unusual audio formats and files with missing MIME metadata.",
         checked = settings.broadScan,
         onChange = onSetBroadScan
     )
@@ -258,11 +995,8 @@ private fun IndexingSettings(
                     text = folderUri.substringAfterLast("%3A"),
                     modifier = Modifier.weight(1f)
                 )
-
                 Button(
-                    onClick = {
-                        onRemoveScanFolder(folderUri)
-                    }
+                    onClick = { onRemoveScanFolder(folderUri) }
                 ) {
                     Text("Remove")
                 }
@@ -274,9 +1008,7 @@ private fun IndexingSettings(
 
     Slider(
         value = settings.maxFolderDepth.toFloat(),
-        onValueChange = { value ->
-            onSetMaxFolderDepth(value.toInt())
-        },
+        onValueChange = { onSetMaxFolderDepth(it.toInt()) },
         valueRange = 1f..15f,
         steps = 13
     )
@@ -317,15 +1049,17 @@ private fun IndexingSettings(
 @Composable
 private fun CustomizationSettings(
     settings: IndexerSettings,
+    onSetShowRamUsage: (Boolean) -> Unit,
     onSetDarkTheme: (Boolean) -> Unit,
     onSetAccentColor: (AccentColor) -> Unit,
     onSetAccentArgb: (Int) -> Unit,
-    onSetMarqueeLongTitles: (Boolean) -> Unit
+    onSetMarqueeLongTitles: (Boolean) -> Unit,
+    onSetShowAlbumTileArtwork: (Boolean) -> Unit,
+    onSetAlbumTileStyle: (String) -> Unit
 ) {
     var hexInput by remember {
         mutableStateOf(settings.accent.toHexColor())
     }
-
     var isPickerOpen by remember {
         mutableStateOf(false)
     }
@@ -347,11 +1081,50 @@ private fun CustomizationSettings(
     )
 
     SettingToggle(
+        label = "Show RAM usage",
+        description =
+            "Display approximate process memory in the title bar.",
+        checked = settings.showRamUsage,
+        onChange = onSetShowRamUsage
+    )
+
+    SettingToggle(
         label = "Scroll long song titles",
-        description = "Move long titles sideways in the player so the full title can be read.",
+        description =
+            "Move long titles sideways in the player so the full title can be read.",
         checked = settings.marqueeLongTitles,
         onChange = onSetMarqueeLongTitles
     )
+
+    SettingToggle(
+        label = "Album tile artwork",
+        description =
+            "Show song covers instead of track-title previews in Albums.",
+        checked = settings.showAlbumTileArtwork,
+        onChange = onSetShowAlbumTileArtwork
+    )
+
+    if (settings.showAlbumTileArtwork) {
+        Text(
+            text = "Album tile style",
+            style = MaterialTheme.typography.titleSmall
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = settings.albumTileStyle == "ONE",
+                onClick = { onSetAlbumTileStyle("ONE") },
+                label = { Text("1 cover") }
+            )
+            FilterChip(
+                selected = settings.albumTileStyle == "FOUR",
+                onClick = { onSetAlbumTileStyle("FOUR") },
+                label = { Text("4 covers") }
+            )
+        }
+    }
 
     HorizontalDivider()
 
@@ -369,24 +1142,21 @@ private fun CustomizationSettings(
             modifier = Modifier
                 .size(72.dp)
                 .background(
-                    color = settings.accent,
-                    shape = RoundedCornerShape(20.dp)
+                    settings.accent,
+                    RoundedCornerShape(20.dp)
                 )
                 .border(
-                    width = 2.dp,
-                    color = MaterialTheme.colorScheme.outline,
-                    shape = RoundedCornerShape(20.dp)
+                    2.dp,
+                    MaterialTheme.colorScheme.outline,
+                    RoundedCornerShape(20.dp)
                 )
         )
 
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "Selected color",
                 style = MaterialTheme.typography.bodyMedium
             )
-
             Text(
                 text = settings.accent.toHexColor(),
                 style = MaterialTheme.typography.titleMedium
@@ -395,9 +1165,7 @@ private fun CustomizationSettings(
     }
 
     Button(
-        onClick = {
-            isPickerOpen = true
-        },
+        onClick = { isPickerOpen = true },
         modifier = Modifier.fillMaxWidth()
     ) {
         Text("Open color picker")
@@ -418,10 +1186,7 @@ private fun CustomizationSettings(
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .background(
-                        color = accent.color,
-                        shape = CircleShape
-                    )
+                    .background(accent.color, CircleShape)
                     .border(
                         width = if (isSelected) 3.dp else 1.dp,
                         color = if (isSelected) {
@@ -431,9 +1196,7 @@ private fun CustomizationSettings(
                         },
                         shape = CircleShape
                     )
-                    .clickable {
-                        onSetAccentColor(accent)
-                    }
+                    .clickable { onSetAccentColor(accent) }
             )
         }
     }
@@ -443,26 +1206,18 @@ private fun CustomizationSettings(
         onValueChange = { newValue ->
             val normalized = newValue
                 .uppercase()
-                .filter { character ->
-                    character == '#' ||
-                            character.isDigit() ||
-                            character in 'A'..'F'
+                .filter {
+                    it == '#' || it.isDigit() || it in 'A'..'F'
                 }
                 .take(9)
 
             hexInput = normalized
 
-            normalized.toArgbOrNull()?.let { argb ->
-                onSetAccentArgb(argb)
-            }
+            normalized.toArgbOrNull()?.let(onSetAccentArgb)
         },
         modifier = Modifier.fillMaxWidth(),
-        label = {
-            Text("Custom hex color")
-        },
-        supportingText = {
-            Text("Use #RRGGBB or #AARRGGBB")
-        },
+        label = { Text("Custom hex color") },
+        supportingText = { Text("Use #RRGGBB or #AARRGGBB") },
         singleLine = true,
         isError = hexInput.isNotBlank() &&
                 hexInput.toArgbOrNull() == null
@@ -471,11 +1226,9 @@ private fun CustomizationSettings(
     if (isPickerOpen) {
         AccentColorPickerDialog(
             initialColor = settings.accent,
-            onDismiss = {
-                isPickerOpen = false
-            },
-            onApply = { selectedColor ->
-                onSetAccentArgb(selectedColor.toArgb())
+            onDismiss = { isPickerOpen = false },
+            onApply = {
+                onSetAccentArgb(it.toArgb())
                 isPickerOpen = false
             }
         )
@@ -489,51 +1242,35 @@ private fun AccentColorPickerDialog(
     onApply: (Color) -> Unit
 ) {
     val initialHsv = remember(initialColor) {
-        FloatArray(3).also { hsv ->
-            AndroidColor.colorToHSV(
-                initialColor.toArgb(),
-                hsv
-            )
+        FloatArray(3).also {
+            AndroidColor.colorToHSV(initialColor.toArgb(), it)
         }
     }
 
     var hue by remember(initialColor) {
         mutableFloatStateOf(initialHsv[0])
     }
-
     var saturation by remember(initialColor) {
         mutableFloatStateOf(initialHsv[1])
     }
-
     var value by remember(initialColor) {
         mutableFloatStateOf(initialHsv[2])
     }
 
     val selectedColor = Color(
         AndroidColor.HSVToColor(
-            floatArrayOf(
-                hue,
-                saturation,
-                value
-            )
+            floatArrayOf(hue, saturation, value)
         )
     )
-
     val pureHue = Color(
         AndroidColor.HSVToColor(
-            floatArrayOf(
-                hue,
-                1f,
-                1f
-            )
+            floatArrayOf(hue, 1f, 1f)
         )
     )
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text("Choose accent color")
-        },
+        title = { Text("Choose accent color") },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -547,22 +1284,20 @@ private fun AccentColorPickerDialog(
                         modifier = Modifier
                             .size(52.dp)
                             .background(
-                                color = selectedColor,
-                                shape = RoundedCornerShape(14.dp)
+                                selectedColor,
+                                RoundedCornerShape(14.dp)
                             )
                             .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outline,
-                                shape = RoundedCornerShape(14.dp)
+                                1.dp,
+                                MaterialTheme.colorScheme.outline,
+                                RoundedCornerShape(14.dp)
                             )
                     )
-
                     Column {
                         Text(
                             text = "Preview",
                             style = MaterialTheme.typography.bodySmall
                         )
-
                         Text(
                             text = selectedColor.toHexColor(),
                             style = MaterialTheme.typography.titleMedium
@@ -570,10 +1305,7 @@ private fun AccentColorPickerDialog(
                     }
                 }
 
-                Text(
-                    text = "Color and brightness",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Text("Color and brightness")
 
                 SaturationValuePicker(
                     hueColor = pureHue,
@@ -585,32 +1317,21 @@ private fun AccentColorPickerDialog(
                     }
                 )
 
-                Text(
-                    text = "Hue",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Text("Hue")
 
                 HuePicker(
                     hue = hue,
-                    onHueChange = { newHue ->
-                        hue = newHue
-                    }
+                    onHueChange = { hue = it }
                 )
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    onApply(selectedColor)
-                }
-            ) {
+            Button(onClick = { onApply(selectedColor) }) {
                 Text("Apply")
             }
         },
         dismissButton = {
-            OutlinedButton(
-                onClick = onDismiss
-            ) {
+            OutlinedButton(onClick = onDismiss) {
                 Text("Cancel")
             }
         }
@@ -629,19 +1350,11 @@ private fun SaturationValuePicker(
         width: Float,
         height: Float
     ) {
-        if (width <= 0f || height <= 0f) {
-            return
-        }
-
-        val newSaturation = (position.x / width)
-            .coerceIn(0f, 1f)
-
-        val newValue = (1f - (position.y / height))
-            .coerceIn(0f, 1f)
+        if (width <= 0f || height <= 0f) return
 
         onChange(
-            newSaturation,
-            newValue
+            (position.x / width).coerceIn(0f, 1f),
+            (1f - position.y / height).coerceIn(0f, 1f)
         )
     }
 
@@ -652,64 +1365,48 @@ private fun SaturationValuePicker(
             .drawBehind {
                 drawRect(
                     brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.White,
-                            hueColor
-                        )
+                        listOf(Color.White, hueColor)
                     )
                 )
-
                 drawRect(
                     brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black
-                        )
+                        listOf(Color.Transparent, Color.Black)
                     )
                 )
 
-                val markerX = saturation * size.width
-                val markerY = (1f - value) * size.height
+                val marker = Offset(
+                    saturation * size.width,
+                    (1f - value) * size.height
+                )
 
                 drawCircle(
                     color = Color.White,
                     radius = 12.dp.toPx(),
-                    center = Offset(
-                        markerX,
-                        markerY
-                    ),
-                    style = Stroke(
-                        width = 3.dp.toPx()
-                    )
+                    center = marker,
+                    style = Stroke(width = 3.dp.toPx())
                 )
-
                 drawCircle(
                     color = Color.Black,
                     radius = 15.dp.toPx(),
-                    center = Offset(
-                        markerX,
-                        markerY
-                    ),
-                    style = Stroke(
-                        width = 1.dp.toPx()
-                    )
+                    center = marker,
+                    style = Stroke(width = 1.dp.toPx())
                 )
             }
             .pointerInput(Unit) {
-                detectTapGestures { offset ->
+                detectTapGestures {
                     updateFromPosition(
-                        position = offset,
-                        width = size.width.toFloat(),
-                        height = size.height.toFloat()
+                        it,
+                        size.width.toFloat(),
+                        size.height.toFloat()
                     )
                 }
             }
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
                     updateFromPosition(
-                        position = change.position,
-                        width = size.width.toFloat(),
-                        height = size.height.toFloat()
+                        change.position,
+                        size.width.toFloat(),
+                        size.height.toFloat()
                     )
                 }
             }
@@ -721,17 +1418,11 @@ private fun HuePicker(
     hue: Float,
     onHueChange: (Float) -> Unit
 ) {
-    fun updateHue(
-        position: Offset,
-        width: Float
-    ) {
-        if (width <= 0f) {
-            return
-        }
+    fun updateHue(position: Offset, width: Float) {
+        if (width <= 0f) return
 
         onHueChange(
-            ((position.x / width) * 360f)
-                .coerceIn(0f, 360f)
+            ((position.x / width) * 360f).coerceIn(0f, 360f)
         )
     }
 
@@ -740,62 +1431,46 @@ private fun HuePicker(
             .fillMaxWidth()
             .height(32.dp)
             .drawBehind {
-                val hueColors = listOf(
-                    Color.Red,
-                    Color.Yellow,
-                    Color.Green,
-                    Color.Cyan,
-                    Color.Blue,
-                    Color.Magenta,
-                    Color.Red
-                )
-
                 drawRect(
                     brush = Brush.horizontalGradient(
-                        colors = hueColors
+                        listOf(
+                            Color.Red,
+                            Color.Yellow,
+                            Color.Green,
+                            Color.Cyan,
+                            Color.Blue,
+                            Color.Magenta,
+                            Color.Red
+                        )
                     )
                 )
 
-                val markerX = (hue / 360f) * size.width
+                val marker = Offset(
+                    (hue / 360f) * size.width,
+                    size.height / 2f
+                )
 
                 drawCircle(
                     color = Color.White,
                     radius = 10.dp.toPx(),
-                    center = Offset(
-                        markerX,
-                        size.height / 2f
-                    ),
-                    style = Stroke(
-                        width = 3.dp.toPx()
-                    )
+                    center = marker,
+                    style = Stroke(width = 3.dp.toPx())
                 )
-
                 drawCircle(
                     color = Color.Black,
                     radius = 13.dp.toPx(),
-                    center = Offset(
-                        markerX,
-                        size.height / 2f
-                    ),
-                    style = Stroke(
-                        width = 1.dp.toPx()
-                    )
+                    center = marker,
+                    style = Stroke(width = 1.dp.toPx())
                 )
             }
             .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    updateHue(
-                        position = offset,
-                        width = size.width.toFloat()
-                    )
+                detectTapGestures {
+                    updateHue(it, size.width.toFloat())
                 }
             }
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
-                    updateHue(
-                        position = change.position,
-                        width = size.width.toFloat()
-                    )
+                    updateHue(change.position, size.width.toFloat())
                 }
             }
     )
@@ -812,17 +1487,13 @@ private fun SettingToggle(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(label)
-
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodySmall
             )
         }
-
         Switch(
             checked = checked,
             onCheckedChange = onChange
@@ -851,7 +1522,8 @@ private fun String.toArgbOrNull(): Int? {
     }.getOrNull()
 }
 
-enum class SettingsCategory {
-    INDEXING,
-    CUSTOMIZATION
+enum class SettingsCategory(val label: String) {
+    INDEXING("Indexing"),
+    CUSTOMIZATION("Customization"),
+    UPDATES("Updates")
 }
