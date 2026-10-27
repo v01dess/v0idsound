@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -76,6 +77,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     settings: IndexerSettings,
+    hiddenTracks: List<Track>,
+    onUnhideTrack: (Track) -> Unit,
+    onSetAccentVibrancy: (Float) -> Unit,
     onSetShowRamUsage: (Boolean) -> Unit,
     onSetMinimumDuration: (Int) -> Unit,
     onSetOnlyMusic: (Boolean) -> Unit,
@@ -246,6 +250,8 @@ fun SettingsScreen(
             SettingsCategory.INDEXING -> {
                 IndexingSettings(
                     settings = settings,
+                    hiddenTracks = hiddenTracks,
+                    onUnhideTrack = onUnhideTrack,
                     durationInput = durationInput,
                     onDurationInputChange = { newValue ->
                         val digitsOnly = newValue.filter {
@@ -277,6 +283,7 @@ fun SettingsScreen(
             SettingsCategory.CUSTOMIZATION -> {
                 CustomizationSettings(
                     settings = settings,
+                    onSetAccentVibrancy = onSetAccentVibrancy,
                     onSetShowRamUsage = onSetShowRamUsage,
                     onSetDarkTheme = onSetDarkTheme,
                     onSetAccentColor = onSetAccentColor,
@@ -907,6 +914,8 @@ private fun formatUpdateBytes(bytes: Long): String {
 @Composable
 private fun IndexingSettings(
     settings: IndexerSettings,
+    hiddenTracks: List<Track>,
+    onUnhideTrack: (Track) -> Unit,
     durationInput: String,
     onDurationInputChange: (String) -> Unit,
     pickFolder: () -> Unit,
@@ -1044,6 +1053,49 @@ private fun IndexingSettings(
     ) {
         Text("Rescan library now")
     }
+
+    HorizontalDivider()
+
+    if (hiddenTracks.isNotEmpty()) {
+        Text(
+            text = "Hidden tracks (${hiddenTracks.size})",
+            style = MaterialTheme.typography.titleLarge
+        )
+
+        Text(
+            text = "Swipe left on a track in the player to hide it. " +
+                    "Tap Unhide to bring it back.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        hiddenTracks.forEach { track ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = track.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = track.artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                TextButton(onClick = { onUnhideTrack(track) }) {
+                    Text("Unhide")
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1051,6 +1103,7 @@ private fun CustomizationSettings(
     settings: IndexerSettings,
     onSetShowRamUsage: (Boolean) -> Unit,
     onSetDarkTheme: (Boolean) -> Unit,
+    onSetAccentVibrancy: (Float) -> Unit,
     onSetAccentColor: (AccentColor) -> Unit,
     onSetAccentArgb: (Int) -> Unit,
     onSetMarqueeLongTitles: (Boolean) -> Unit,
@@ -1127,6 +1180,14 @@ private fun CustomizationSettings(
     }
 
     HorizontalDivider()
+
+    Text("Accent vibrancy: ${settings.accentVibrancy}%")
+
+    Slider(
+        value = settings.accentVibrancy,
+        onValueChange = onSetAccentVibrancy,
+        valueRange = 0f..100f
+    )
 
     Text(
         text = "Accent color",

@@ -60,6 +60,7 @@ dependencies {
 
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("com.materialkolor:material-color-utilities:4.0.0")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
 

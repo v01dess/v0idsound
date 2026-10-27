@@ -27,6 +27,13 @@ class MusicRepository(
         )
     }
 
+    private val hiddenPreferences by lazy {
+        context.getSharedPreferences(
+            "v0idsound_hidden_tracks",
+            Context.MODE_PRIVATE
+        )
+    }
+
     private val allowedMimeTypes = setOf(
         "audio/mpeg",
         "audio/mp3",
@@ -68,6 +75,30 @@ class MusicRepository(
                 normalized.contains("opus") ||
                 normalized.contains("flac") ||
                 normalized.contains("adpcm")
+    }
+
+    fun isHidden(uriString: String): Boolean {
+        return hiddenPreferences
+            .getStringSet("hidden_uris", emptySet())
+            ?.contains(uriString) ?: false
+    }
+
+    fun setHidden(uriString: String, hidden: Boolean) {
+        val current = hiddenPreferences
+            .getStringSet("hidden_uris", emptySet())
+            ?.toMutableSet() ?: mutableSetOf()
+
+        if (hidden) current.add(uriString) else current.remove(uriString)
+
+        hiddenPreferences.edit()
+            .putStringSet("hidden_uris", current)
+            .apply()
+    }
+
+    fun getHiddenUris(): Set<String> {
+        return hiddenPreferences
+            .getStringSet("hidden_uris", emptySet())
+            ?: emptySet()
     }
 
     fun loadTracks(settings: IndexerSettings): List<Track> {
@@ -221,6 +252,40 @@ class MusicRepository(
         return tracks
     }
 
+    fun loadAllTracks(
+        settings: IndexerSettings,
+        folderScanner: FolderScanner
+    ): List<Track> {
+        val merged = mutableListOf<Track>()
+        val seenUris = mutableSetOf<String>()
+
+        if (settings.useMediaStore) {
+            loadTracks(settings).forEach { track ->
+                if (seenUris.add(track.uri.toString())) {
+                    merged.add(track)
+                }
+            }
+        }
+
+        settings.scanFolders.forEach { folderUri ->
+            val folderTracks = runCatching {
+                folderScanner.scanFolder(
+                    treeUri = Uri.parse(folderUri),
+                    maxDepth = settings.maxFolderDepth
+                )
+            }.getOrDefault(emptyList())
+
+            folderTracks.forEach { track ->
+                val uriString = track.uri.toString()
+                if (seenUris.add(uriString)) {
+                    merged.add(track)
+                }
+            }
+        }
+
+        return merged
+    }
+
     fun loadTracksWithFolders(
         settings: IndexerSettings,
         folderScanner: FolderScanner
@@ -296,15 +361,16 @@ class MusicRepository(
             "Merged library returned ${merged.size} tracks"
         )
 
+        val filtered = merged.filterNot { isHidden(it.uri.toString()) }
         return if (settings.sortByName) {
-            merged.sortedWith(
+            filtered.sortedWith(
                 compareBy<Track, String>(
                     String.CASE_INSENSITIVE_ORDER
                 ) { it.title }
                     .thenBy { it.uri.toString() }
             )
         } else {
-            merged.sortedWith(
+            filtered.sortedWith(
                 compareByDescending<Track> { it.dateAddedMs }
                     .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }
             )

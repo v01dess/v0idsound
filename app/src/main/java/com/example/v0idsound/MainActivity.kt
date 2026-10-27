@@ -30,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -51,6 +52,25 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.materialkolor.hct.Hct
+import com.materialkolor.scheme.SchemeTonalSpot
+import com.materialkolor.scheme.SchemeNeutral
+import androidx.compose.ui.graphics.Color
+
+private fun blend(a: Int, b: Int, t: Float): Int {
+    val ar = (a shr 16) and 0xFF
+    val ag = (a shr 8) and 0xFF
+    val ab = a and 0xFF
+    val br = (b shr 16) and 0xFF
+    val bg = (b shr 8) and 0xFF
+    val bb = b and 0xFF
+
+    val r = (ar + (br - ar) * t).toInt().coerceIn(0, 255)
+    val g = (ag + (bg - ag) * t).toInt().coerceIn(0, 255)
+    val bl = (ab + (bb - ab) * t).toInt().coerceIn(0, 255)
+
+    return (r shl 16) or (g shl 8) or bl
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -67,6 +87,8 @@ class MainActivity : ComponentActivity() {
     private var currentScreen by mutableStateOf(AppScreen.PLAYER)
     private var tracks by mutableStateOf<List<Track>>(emptyList())
     private var currentTrack by mutableStateOf<Track?>(null)
+
+    private var hiddenTracks by mutableStateOf<List<Track>>(emptyList())
     private var isPlaying by mutableStateOf(false)
     private var positionMs by mutableLongStateOf(0L)
     private var durationMs by mutableLongStateOf(0L)
@@ -161,10 +183,85 @@ class MainActivity : ComponentActivity() {
             val listeningStats by listeningStatsRepository.stats.collectAsState(
                 initial = emptyMap<String, ListeningStats>()
             )
-            val colorScheme = if (settings.useDarkTheme) {
-                darkColorScheme(primary = settings.accent)
-            } else {
-                lightColorScheme(primary = settings.accent)
+            val colorScheme = remember(settings.useDarkTheme, settings.accentArgb, settings.accentVibrancy) {
+                val sourceHct = Hct.fromInt(settings.accentArgb)
+                val t = settings.accentVibrancy / 100f
+
+                val tonal = SchemeTonalSpot(
+                    sourceColorHct = sourceHct,
+                    isDark = settings.useDarkTheme,
+                    contrastLevel = 0.0
+                )
+
+                val neutral = SchemeNeutral(
+                    sourceColorHct = sourceHct,
+                    isDark = settings.useDarkTheme,
+                    contrastLevel = 0.0
+                )
+
+                if (settings.useDarkTheme) {
+                    darkColorScheme(
+                        primary = Color(blend(neutral.primary, tonal.primary, t)),
+                        onPrimary = Color(tonal.onPrimary),
+                        primaryContainer = Color(blend(neutral.primaryContainer, tonal.primaryContainer, t)),
+                        onPrimaryContainer = Color(tonal.onPrimaryContainer),
+                        secondary = Color(blend(neutral.secondary, tonal.secondary, t)),
+                        onSecondary = Color(tonal.onSecondary),
+                        secondaryContainer = Color(blend(neutral.secondaryContainer, tonal.secondaryContainer, t)),
+                        onSecondaryContainer = Color(tonal.onSecondaryContainer),
+                        tertiary = Color(blend(neutral.tertiary, tonal.tertiary, t)),
+                        onTertiary = Color(tonal.onTertiary),
+                        tertiaryContainer = Color(blend(neutral.tertiaryContainer, tonal.tertiaryContainer, t)),
+                        onTertiaryContainer = Color(tonal.onTertiaryContainer),
+                        error = Color(tonal.error),
+                        onError = Color(tonal.onError),
+                        errorContainer = Color(tonal.errorContainer),
+                        onErrorContainer = Color(tonal.onErrorContainer),
+                        background = Color(tonal.background),
+                        onBackground = Color(tonal.onBackground),
+                        surface = Color(tonal.surface),
+                        onSurface = Color(tonal.onSurface),
+                        surfaceVariant = Color(tonal.surfaceVariant),
+                        onSurfaceVariant = Color(tonal.onSurfaceVariant),
+                        outline = Color(tonal.outline),
+                        outlineVariant = Color(tonal.outlineVariant),
+                        inverseSurface = Color(tonal.inverseSurface),
+                        inverseOnSurface = Color(tonal.inverseOnSurface),
+                        inversePrimary = Color(tonal.inversePrimary),
+                        surfaceTint = Color(blend(neutral.primary, tonal.primary, t))
+                    )
+                } else {
+                    lightColorScheme(
+                        primary = Color(blend(neutral.primary, tonal.primary, t)),
+                        onPrimary = Color(tonal.onPrimary),
+                        primaryContainer = Color(blend(neutral.primaryContainer, tonal.primaryContainer, t)),
+                        onPrimaryContainer = Color(tonal.onPrimaryContainer),
+                        secondary = Color(blend(neutral.secondary, tonal.secondary, t)),
+                        onSecondary = Color(tonal.onSecondary),
+                        secondaryContainer = Color(blend(neutral.secondaryContainer, tonal.secondaryContainer, t)),
+                        onSecondaryContainer = Color(tonal.onSecondaryContainer),
+                        tertiary = Color(blend(neutral.tertiary, tonal.tertiary, t)),
+                        onTertiary = Color(tonal.onTertiary),
+                        tertiaryContainer = Color(blend(neutral.tertiaryContainer, tonal.tertiaryContainer, t)),
+                        onTertiaryContainer = Color(tonal.onTertiaryContainer),
+                        error = Color(tonal.error),
+                        onError = Color(tonal.onError),
+                        errorContainer = Color(tonal.errorContainer),
+                        onErrorContainer = Color(tonal.onErrorContainer),
+                        background = Color(tonal.background),
+                        onBackground = Color(tonal.onBackground),
+                        surface = Color(tonal.surface),
+                        onSurface = Color(tonal.onSurface),
+                        surfaceVariant = Color(tonal.surfaceVariant),
+                        onSurfaceVariant = Color(tonal.onSurfaceVariant),
+                        outline = Color(tonal.outline),
+                        outlineVariant = Color(tonal.outlineVariant),
+                        inverseSurface = Color(tonal.inverseSurface),
+                        inverseOnSurface = Color(tonal.inverseOnSurface),
+                        inversePrimary = Color(tonal.inversePrimary),
+                        surfaceTint = Color(blend(neutral.primary, tonal.primary, t))
+                    )
+                }
             }
 
             MaterialTheme(colorScheme = colorScheme) {
@@ -235,7 +332,15 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onPrevious = { controller?.seekToPreviousMediaItem() },
-                            onNext = { controller?.seekToNextMediaItem() },
+                            onNext = {
+                                controller?.let { player ->
+                                    val count = player.mediaItemCount
+                                    if (count > 0) {
+                                        val nextIndex = (player.currentMediaItemIndex + 1) % count
+                                        player.seekTo(nextIndex, 0L)
+                                    }
+                                }
+                            },
                             onSeek = { fraction ->
                                 controller?.let { player ->
                                     if (player.duration > 0L) {
@@ -245,7 +350,20 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
-                            onTrackClick = { playTrack(it) }
+                            onTrackClick = { playTrack(it) },
+                            onTrackSwipeLeft = { track ->
+                                scope.launch {
+                                    musicRepository.setHidden(track.uri.toString(), true)
+                                    reloadLibrary(settings)
+                                }
+                            },
+
+                            onTrackSwipeLeftUndo = { track ->
+                                scope.launch {
+                                    musicRepository.setHidden(track.uri.toString(), false)
+                                    reloadLibrary(settings)
+                                }
+                            },
                         )
 
                         AppScreen.STATISTICS -> StatisticsScreen(
@@ -259,6 +377,16 @@ class MainActivity : ComponentActivity() {
 
                         AppScreen.SETTINGS -> SettingsScreen(
                             settings = settings,
+                            hiddenTracks = hiddenTracks,
+                            onUnhideTrack = { track ->
+                                scope.launch {
+                                    musicRepository.setHidden(track.uri.toString(), false)
+                                    reloadLibrary(settings)
+                                }
+                            },
+                            onSetAccentVibrancy = { value ->          // ← add this
+                                scope.launch { settingsRepository.setAccentVibrancy(value) }
+                            },
                             onSetShowRamUsage = { value ->
                                 scope.launch { settingsRepository.setShowRamUsage(value) }
                             },
@@ -429,11 +557,24 @@ class MainActivity : ComponentActivity() {
             indicesByUri = library.indices
             libraryMediaItems = library.mediaItems
             tracks = library.tracks
+            refreshHiddenTracks(settings)
             controller?.let { syncPlayerState(it) }
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
             Log.e(TAG, "Could not load music library", exception)
+        }
+    }
+
+    private suspend fun refreshHiddenTracks(settings: IndexerSettings) {
+        val hiddenUris = musicRepository.getHiddenUris()
+        if (hiddenUris.isEmpty()) {
+            hiddenTracks = emptyList()
+            return
+        }
+        hiddenTracks = withContext(Dispatchers.IO) {
+            musicRepository.loadAllTracks(settings, folderScanner)
+                .filter { it.uri.toString() in hiddenUris }
         }
     }
 

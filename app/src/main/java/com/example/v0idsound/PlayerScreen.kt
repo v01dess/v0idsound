@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -74,7 +75,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.media3.common.Player
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.memory.MemoryCache
@@ -94,7 +101,7 @@ private object PlayerArtworkLoader {
                 .memoryCache {
                     MemoryCache.Builder(context.applicationContext)
                         .maxSizeBytes(16 * 1024 * 1024)
-                        .weakReferencesEnabled(false)
+                        .weakReferencesEnabled(true)
                         .build()
                 }
                 .diskCache(null)
@@ -210,8 +217,11 @@ fun PlayerScreen(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onSeek: (Float) -> Unit,
-    onTrackClick: (Track) -> Unit
+    onTrackClick: (Track) -> Unit,
+    onTrackSwipeLeft: (Track) -> Unit,
+    onTrackSwipeLeftUndo: (Track) -> Unit
 ) {
+    val snackbarHostState = remember { SnackbarHostState() }
     var isSeeking by remember(currentTrack?.uri) {
         mutableStateOf(false)
     }
@@ -334,6 +344,28 @@ fun PlayerScreen(
             selectedSort,
             listeningStats
         )
+    }
+
+    val nextTrack: Track? = remember(visibleTracks, currentTrack) {
+        val idx = visibleTracks.indexOfFirst { it.uri == currentTrack?.uri }
+        if (idx >= 0 && idx < visibleTracks.size - 1) {
+            visibleTracks[idx + 1]
+        } else if (idx >= 0) {
+            visibleTracks.firstOrNull() // wrap around
+        } else {
+            null
+        }
+    }
+
+    val prevTrack: Track? = remember(visibleTracks, currentTrack) {
+        val idx = visibleTracks.indexOfFirst { it.uri == currentTrack?.uri }
+        if (idx > 0) {
+            visibleTracks[idx - 1]
+        } else if (idx == 0 && visibleTracks.isNotEmpty()) {
+            visibleTracks.last() // wrap around
+        } else {
+            null
+        }
     }
 
     val sliderValue = when {
@@ -613,18 +645,28 @@ fun PlayerScreen(
                                 track = track,
                                 selected = track.uri == currentTrack?.uri,
                                 playCount = if (
-                                    selectedSort ==
-                                    LibrarySort.MOST_LISTENED
+                                    selectedSort == LibrarySort.MOST_LISTENED
                                 ) {
-                                    listeningStats[
-                                        track.uri.toString()
-                                    ]?.playCount ?: 0L
+                                    listeningStats[track.uri.toString()]?.playCount ?: 0L
                                 } else {
                                     null
                                 },
                                 onClick = {
                                     focusManager.clearFocus()
                                     onTrackClick(track)
+                                },
+                                onSwipeLeft = {
+                                    onTrackSwipeLeft(track)
+                                    scope.launch {
+                                        val result = snackbarHostState.showSnackbar(
+                                            message = "Hidden: ${track.title}",
+                                            actionLabel = "Undo",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            onTrackSwipeLeftUndo(track)
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -686,8 +728,8 @@ fun PlayerScreen(
                     isSeeking = false
                 },
                 onPlayPause = onPlayPause,
-                onPrevious = onPrevious,
-                onNext = onNext,
+                onPrevious = { prevTrack?.let { onTrackClick(it) } },
+                onNext = { nextTrack?.let { onTrackClick(it) } },
                 onRepeatClick = onRepeatClick,
                 onRoll = {
                     if (!isRolling && tracks.isNotEmpty()) {
@@ -714,6 +756,10 @@ fun PlayerScreen(
                     }
                 },
                 onClose = { isPlayerPanelOpen = false }
+            )
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
     }
@@ -889,7 +935,8 @@ private fun LibraryTrackRow(
     track: Track,
     selected: Boolean,
     playCount: Long?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onSwipeLeft: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -902,6 +949,20 @@ private fun LibraryTrackRow(
                     MaterialTheme.colorScheme.surface
                 }
             )
+            .pointerInput(track.uri) {
+                var totalDrag = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { totalDrag = 0f },
+                    onHorizontalDrag = { change, amount ->
+                        totalDrag += amount
+                        change.consume()
+                    },
+                    onDragEnd = {
+                        if (totalDrag < -100f) onSwipeLeft()
+                    },
+                    onDragCancel = { totalDrag = 0f }
+                )
+            }
             .clickable(onClick = onClick)
             .padding(12.dp)
     ) {
@@ -984,7 +1045,7 @@ private fun CurrentlyPlayingCard(
     Card(
         modifier = Modifier
             .fillMaxWidth(0.92f)
-            .height(610.dp)
+            .fillMaxHeight(0.77f)
             .padding(
                 top = 16.dp,
                 start = 28.dp,
@@ -1053,7 +1114,7 @@ private fun CurrentlyPlayingCard(
             ) {
                 Text(
                     text = track?.title ?: "No track selected",
-                    modifier = if (marqueeLongTitles) {
+                    modifier = if (marqueeLongTitles && (track?.title?.length ?: 0)> 24) {
                         Modifier.fillMaxWidth().basicMarquee()
                     } else {
                         Modifier.fillMaxWidth()
@@ -1183,30 +1244,6 @@ private fun CurrentlyPlayingCard(
                 Text(
                     if (isRolling) "Rolling..." else "Roll random track"
                 )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(22.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isRolling) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp
-                        )
-
-                        Text(
-                            text = "Choosing a track...",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
             }
         }
     }
