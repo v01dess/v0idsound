@@ -69,7 +69,7 @@ private fun blend(a: Int, b: Int, t: Float): Int {
     val g = (ag + (bg - ag) * t).toInt().coerceIn(0, 255)
     val bl = (ab + (bb - ab) * t).toInt().coerceIn(0, 255)
 
-    return (r shl 16) or (g shl 8) or bl
+    return (0xFF shl 24) or (r shl 16) or (g shl 8) or bl
 }
 
 class MainActivity : ComponentActivity() {
