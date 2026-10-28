@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -463,7 +465,7 @@ fun PlayerScreen(
                             onDismissRequest = { isMenuOpen = false }
                         ) {
                             Text(
-                                text = "View",
+                                text = "View", // ts the view on the sorting dropdown
                                 modifier = Modifier.padding(
                                     horizontal = 16.dp,
                                     vertical = 8.dp
@@ -476,7 +478,7 @@ fun PlayerScreen(
                                     text = {
                                         Text(
                                             if (option == selectedView) {
-                                                "✓ ${option.label}"
+                                                "✓ ${option.label}" // ts the fucking check mark on the sorting options
                                             } else {
                                                 option.label
                                             }
@@ -494,7 +496,7 @@ fun PlayerScreen(
                             HorizontalDivider()
 
                             Text(
-                                text = "Sort songs",
+                                text = "Sort songs", // the sort songs button lmao
                                 modifier = Modifier.padding(
                                     horizontal = 16.dp,
                                     vertical = 8.dp
@@ -523,7 +525,7 @@ fun PlayerScreen(
                     }
                 }
 
-                OutlinedTextField(
+                OutlinedTextField( // this shit the search bar
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -1044,6 +1046,8 @@ private fun CurrentlyPlayingCard(
 
     Card(
         modifier = Modifier
+            .widthIn(max = 420.dp)
+            .heightIn(max = 865.dp)
             .fillMaxWidth(0.92f)
             .fillMaxHeight(0.77f)
             .padding(
