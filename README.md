@@ -1,3 +1,4 @@
+
 <div align="center">
 
 # `v0idsound`
@@ -155,3 +156,5 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 Made for local music. Light and Right.
 
 </div>
+
+<img width="740" height="611" alt="image" src="https://github.com/user-attachments/assets/beb168c2-9a11-4dc2-b3a3-5533d69839ea" />
