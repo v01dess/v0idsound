@@ -155,3 +155,5 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 Made for local music. Light and Right.
 
 </div>
+
+<img width="1080" height="1080" alt="gogiva" src="https://github.com/user-attachments/assets/989573d3-25d2-4a03-89f4-9d2ffca7e55d" />
