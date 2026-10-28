@@ -341,25 +341,18 @@ private fun UpdateSettings(
     onInstall: () -> Unit,
     onOpenReleases: () -> Unit
 ) {
+    // Auto-check on first composition
+    LaunchedEffect(Unit) {
+        updates.checkForUpdates()
+    }
+
     Text(
         text = "Updates",
         style = MaterialTheme.typography.titleLarge
     )
 
     Text(
-        text = "Installed version: ${BuildConfig.VERSION_NAME}",
-        style = MaterialTheme.typography.titleMedium
-    )
-
-    Text(
-        text = "Build code: ${BuildConfig.VERSION_CODE}",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-
-    Text(
-        text = "v0idsound checks for updates on launch. " +
-                "You can also check manually here.",
+        text = "Installed: ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
         style = MaterialTheme.typography.bodyMedium
     )
 
@@ -389,31 +382,24 @@ private fun UpdateSettings(
 
         is UpdateCheckResult.UpToDate -> {
             Text(
-                text = "No newer stable release found.",
-                style = MaterialTheme.typography.titleSmall
-            )
-            Text(
-                text = "Installed: ${result.installedVersion}\n" +
-                        "GitHub release: ${result.latestVersion}",
-                style = MaterialTheme.typography.bodyMedium
+                text = "Up to date. Latest release: ${result.latestVersion}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
         UpdateCheckResult.NoPublishedRelease -> {
             Text(
-                text = "No published release found.",
-                style = MaterialTheme.typography.titleSmall
-            )
-            Text(
-                text = "Check that the repository is public and has a " +
-                        "published stable release.",
-                style = MaterialTheme.typography.bodyMedium
+                text = "No published release found on GitHub.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
         is UpdateCheckResult.Failure -> {
             Text(
                 text = result.message,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error
             )
         }
@@ -423,13 +409,6 @@ private fun UpdateSettings(
                 text = "Update available: ${result.release.versionName}",
                 style = MaterialTheme.typography.titleSmall
             )
-
-            OutlinedButton(
-                onClick = { updates.openDialog() },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("View release notes")
-            }
 
             UpdateTransferControls(
                 release = result.release,
@@ -450,13 +429,6 @@ private fun UpdateSettings(
     ) {
         Text("Open GitHub releases")
     }
-
-    Text(
-        text = "Updates are installed over the existing app. " +
-                "Never uninstall to resolve a signing conflict.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
 }
 
 @Composable
