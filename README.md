@@ -1,4 +1,3 @@
-
 <div align="center">
 
 # `v0idsound`
@@ -157,4 +156,4 @@ Made for local music. Light and Right.
 
 </div>
 
-<img width="740" height="611" alt="image" src="https://github.com/user-attachments/assets/beb168c2-9a11-4dc2-b3a3-5533d69839ea" />
+<img width="1080" height="1080" alt="gogiva" src="https://github.com/user-attachments/assets/989573d3-25d2-4a03-89f4-9d2ffca7e55d" />
