@@ -60,6 +60,8 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -216,12 +218,12 @@ fun PlayerScreen(
     onRepeatClick: () -> Unit,
     onShuffleClick: () -> Unit,
     onPlayPause: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
     onSeek: (Float) -> Unit,
     onTrackClick: (Track) -> Unit,
     onTrackSwipeLeft: (Track) -> Unit,
-    onTrackSwipeLeftUndo: (Track) -> Unit
+    onTrackSwipeLeftUndo: (Track) -> Unit,
+    presenceManager: DiscordPresenceManager,
+    onVisibleTracksChanged: (List<Track>) -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     var isSeeking by remember(currentTrack?.uri) {
@@ -262,6 +264,11 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val displayTrack = rolledTrack ?: currentTrack
+
+    // Discord presence: update on track change or play/pause
+    LaunchedEffect(currentTrack?.uri, isPlaying) {
+        presenceManager.update(currentTrack, isPlaying)
+    }
 
     val groups = remember(tracks, selectedView) {
         if (selectedView == LibraryView.SONGS) {
@@ -348,26 +355,26 @@ fun PlayerScreen(
         )
     }
 
-    val nextTrack: Track? = remember(visibleTracks, currentTrack) {
-        val idx = visibleTracks.indexOfFirst { it.uri == currentTrack?.uri }
-        if (idx >= 0 && idx < visibleTracks.size - 1) {
-            visibleTracks[idx + 1]
-        } else if (idx >= 0) {
-            visibleTracks.firstOrNull() // wrap around
-        } else {
-            null
-        }
+    LaunchedEffect(visibleTracks) {
+        onVisibleTracksChanged(visibleTracks)
     }
 
-    val prevTrack: Track? = remember(visibleTracks, currentTrack) {
-        val idx = visibleTracks.indexOfFirst { it.uri == currentTrack?.uri }
-        if (idx > 0) {
-            visibleTracks[idx - 1]
-        } else if (idx == 0 && visibleTracks.isNotEmpty()) {
-            visibleTracks.last() // wrap around
-        } else {
-            null
-        }
+    val currentTrackIndex = visibleTracks.indexOfFirst {
+        it.uri == currentTrack?.uri
+    }
+
+    val nextTrack: Track? = when {
+        visibleTracks.isEmpty() -> null
+        currentTrackIndex < 0 -> visibleTracks.firstOrNull()
+        currentTrackIndex < visibleTracks.lastIndex -> visibleTracks[currentTrackIndex + 1]
+        else -> visibleTracks.first()
+    }
+
+    val prevTrack: Track? = when {
+        visibleTracks.isEmpty() -> null
+        currentTrackIndex < 0 -> visibleTracks.lastOrNull()
+        currentTrackIndex > 0 -> visibleTracks[currentTrackIndex - 1]
+        else -> visibleTracks.last()
     }
 
     val sliderValue = when {
@@ -465,7 +472,7 @@ fun PlayerScreen(
                             onDismissRequest = { isMenuOpen = false }
                         ) {
                             Text(
-                                text = "View", // ts the view on the sorting dropdown
+                                text = "View",
                                 modifier = Modifier.padding(
                                     horizontal = 16.dp,
                                     vertical = 8.dp
@@ -478,7 +485,7 @@ fun PlayerScreen(
                                     text = {
                                         Text(
                                             if (option == selectedView) {
-                                                "✓ ${option.label}" // ts the fucking check mark on the sorting options
+                                                "✓ ${option.label}"
                                             } else {
                                                 option.label
                                             }
@@ -496,7 +503,7 @@ fun PlayerScreen(
                             HorizontalDivider()
 
                             Text(
-                                text = "Sort songs", // the sort songs button lmao
+                                text = "Sort songs",
                                 modifier = Modifier.padding(
                                     horizontal = 16.dp,
                                     vertical = 8.dp
@@ -525,7 +532,7 @@ fun PlayerScreen(
                     }
                 }
 
-                OutlinedTextField( // this shit the search bar
+                OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -663,7 +670,7 @@ fun PlayerScreen(
                                         val result = snackbarHostState.showSnackbar(
                                             message = "Hidden: ${track.title}",
                                             actionLabel = "Undo",
-                                            duration = SnackbarDuration.Short
+                                            duration = SnackbarDuration.Long
                                         )
                                         if (result == SnackbarResult.ActionPerformed) {
                                             onTrackSwipeLeftUndo(track)
@@ -1118,7 +1125,7 @@ private fun CurrentlyPlayingCard(
             ) {
                 Text(
                     text = track?.title ?: "No track selected",
-                    modifier = if (marqueeLongTitles && (track?.title?.length ?: 0)> 24) {
+                    modifier = if (marqueeLongTitles && (track?.title?.length ?: 0) > 24) {
                         Modifier.fillMaxWidth().basicMarquee()
                     } else {
                         Modifier.fillMaxWidth()

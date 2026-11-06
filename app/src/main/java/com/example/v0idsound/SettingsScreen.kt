@@ -79,7 +79,7 @@ fun SettingsScreen(
     settings: IndexerSettings,
     hiddenTracks: List<Track>,
     onUnhideTrack: (Track) -> Unit,
-    onSetAccentVibrancy: (Float) -> Unit,
+    onSetAccentVibrancy: (Int) -> Unit,
     onSetShowRamUsage: (Boolean) -> Unit,
     onSetMinimumDuration: (Int) -> Unit,
     onSetOnlyMusic: (Boolean) -> Unit,
@@ -1075,7 +1075,7 @@ private fun CustomizationSettings(
     settings: IndexerSettings,
     onSetShowRamUsage: (Boolean) -> Unit,
     onSetDarkTheme: (Boolean) -> Unit,
-    onSetAccentVibrancy: (Float) -> Unit,
+    onSetAccentVibrancy: (Int) -> Unit,
     onSetAccentColor: (AccentColor) -> Unit,
     onSetAccentArgb: (Int) -> Unit,
     onSetMarqueeLongTitles: (Boolean) -> Unit,
@@ -1156,8 +1156,8 @@ private fun CustomizationSettings(
     Text("Accent vibrancy: ${settings.accentVibrancy}%")
 
     Slider(
-        value = settings.accentVibrancy,
-        onValueChange = onSetAccentVibrancy,
+        value = settings.accentVibrancy.toFloat(),
+        onValueChange = { onSetAccentVibrancy(it.toInt()) },
         valueRange = 0f..100f
     )
 

@@ -46,7 +46,7 @@ data class IndexerSettings(
      * The actual active theme color is accentArgb.
      */
     val accentColor: AccentColor = AccentColor.VOID_PURPLE,
-    val accentVibrancy: Float = 100f,  // 0-100, default max
+    val accentVibrancy: Int = 100,  // 0-100, default max
 
     /*
      * Stored as an Android ARGB Int.
@@ -109,7 +109,7 @@ class SettingsRepository(
         val ACCENT_ARGB =
             intPreferencesKey("accent_argb")
 
-        val ACCENT_VIBRANCY = floatPreferencesKey("accent_vibrancy")
+        val ACCENT_VIBRANCY = intPreferencesKey("accent_vibrancy")
 
         val MARQUEE_LONG_TITLES =
             booleanPreferencesKey("marquee_long_titles")
@@ -151,7 +151,7 @@ class SettingsRepository(
                 useDarkTheme = prefs[Keys.USE_DARK_THEME] ?: true,
                 accentColor = presetAccent,
                 accentArgb = activeArgb,
-                accentVibrancy = prefs[Keys.ACCENT_VIBRANCY] ?: 100f,
+                accentVibrancy = prefs[Keys.ACCENT_VIBRANCY] ?: 100,
                 marqueeLongTitles =
                     prefs[Keys.MARQUEE_LONG_TITLES] ?: true,
                 showAlbumTileArtwork =
@@ -253,7 +253,7 @@ class SettingsRepository(
         it[Keys.ACCENT_ARGB] = value
     }
     suspend fun setAccentVibrancy(
-        value: Float
+        value: Int
     ) = context.dataStore.edit { prefs ->
         prefs[Keys.ACCENT_VIBRANCY] = value
     }

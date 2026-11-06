@@ -14,7 +14,8 @@ data class Track(
     val durationMs: Long,
     val uri: Uri,
     val artworkUri: Uri? = null,
-    val dateAddedMs: Long = 0L
+    val dateAddedMs: Long = 0L,
+    val albumArtUrl: String? = null
 )
 
 class MusicRepository(

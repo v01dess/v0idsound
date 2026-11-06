@@ -113,6 +113,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val presenceManager by lazy {
+        DiscordPresenceManager(applicationContext)
+    }
+
     private val requestAudioPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -312,6 +316,15 @@ class MainActivity : ComponentActivity() {
                             marqueeLongTitles = settings.marqueeLongTitles,
                             showAlbumTileArtwork = settings.showAlbumTileArtwork,
                             albumTileStyle = settings.albumTileStyle,
+                            presenceManager = presenceManager,
+                            onVisibleTracksChanged = { newQueue ->
+                                controller?.let { player ->
+                                    if (newQueue.isEmpty()) return@let
+                                    val mediaItems = newQueue.map { buildMediaItem(it) }
+                                    val currentIdx = newQueue.indexOfFirst { it.uri == currentTrack?.uri }
+                                    player.setMediaItems(mediaItems, currentIdx.coerceAtLeast(0), player.currentPosition)
+                                }
+                            },
                             onRepeatClick = {
                                 controller?.let { player ->
                                     player.repeatMode = if (
@@ -329,16 +342,6 @@ class MainActivity : ComponentActivity() {
                             onPlayPause = {
                                 controller?.let { player ->
                                     if (player.isPlaying) player.pause() else player.play()
-                                }
-                            },
-                            onPrevious = { controller?.seekToPreviousMediaItem() },
-                            onNext = {
-                                controller?.let { player ->
-                                    val count = player.mediaItemCount
-                                    if (count > 0) {
-                                        val nextIndex = (player.currentMediaItemIndex + 1) % count
-                                        player.seekTo(nextIndex, 0L)
-                                    }
                                 }
                             },
                             onSeek = { fraction ->
@@ -384,8 +387,8 @@ class MainActivity : ComponentActivity() {
                                     reloadLibrary(settings)
                                 }
                             },
-                            onSetAccentVibrancy = { value ->          // ← add this
-                                scope.launch { settingsRepository.setAccentVibrancy(value) }
+                            onSetAccentVibrancy = { value ->
+                                scope.launch { settingsRepository.setAccentVibrancy(value.toInt()) }
                             },
                             onSetShowRamUsage = { value ->
                                 scope.launch { settingsRepository.setShowRamUsage(value) }
@@ -499,6 +502,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         connectController()
+        presenceManager.bind()
     }
 
     private fun openGitHubReleases(): Boolean {
@@ -604,27 +608,15 @@ class MainActivity : ComponentActivity() {
 
     private fun playTrack(track: Track) {
         val player = controller ?: return
-        val index = indicesByUri[track.uri.toString()] ?: return
-        if (libraryMediaItems.isEmpty()) return
+        if (player.mediaItemCount == 0) return
 
-        if (matchesLibraryQueue(player)) {
-            player.seekTo(index, 0L)
-            if (player.playbackState == Player.STATE_IDLE) player.prepare()
-        } else {
-            // Keep the diagnostic's clicked-item-only artwork metadata policy.
-            // No decoded images are stored in this playlist.
-            val queue = libraryMediaItems.toMutableList()
-            val selectedItem = queue[index]
-            queue[index] = selectedItem.buildUpon()
-                .setMediaMetadata(
-                    selectedItem.mediaMetadata.buildUpon()
-                        .setArtworkUri(track.artworkUri)
-                        .build()
-                )
-                .build()
-            player.setMediaItems(queue, index, 0L)
-            player.prepare()
+        val index = (0 until player.mediaItemCount).indexOfFirst {
+            player.getMediaItemAt(it).mediaId == track.uri.toString()
         }
+        if (index < 0) return
+
+        player.seekTo(index, 0L)
+        if (player.playbackState == Player.STATE_IDLE) player.prepare()
         player.play()
         syncPlayerState(player)
     }
@@ -693,6 +685,7 @@ class MainActivity : ComponentActivity() {
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         controller = null
+        presenceManager.unbind()
         super.onDestroy()
     }
 

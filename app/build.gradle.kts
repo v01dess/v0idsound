@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.v0idsound"
         minSdk = 24
         targetSdk = 37
-        versionCode = 2
-        versionName = "v0.22"
+        versionCode = 5
+        versionName = "v0.24"
 
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"
@@ -37,6 +37,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        aidl = true // if you turn this on bananas might break the device
     }
 }
 
